@@ -1,0 +1,15 @@
+{
+	"folders": [
+		{
+			"path": "esp-iot-base"
+		},
+		{
+			"path": "esp-iot-demo"
+		}
+	],
+	"settings": {
+		"files.associations": {
+			"string": "cpp"
+		}
+	}
+}
