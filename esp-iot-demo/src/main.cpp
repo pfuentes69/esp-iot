@@ -16,19 +16,20 @@
 #include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 
-// TO BE REMOVED, SHOULD BE LOADED IF EXISTS
-static const char CSR[] PROGMEM = R"EOF(-----BEGIN CERTIFICATE REQUEST-----
-MIH1MIGcAgEAMDoxFzAVBgNVBAMMDmF3cy1kZXZpY2UtMDA0MQ0wCwYDVQQFEwQw
-MDA0MRAwDgYDVQQKDAdXSVNlS2V5MFkwEwYHKoZIzj0CAQYIKoZIzj0DAQcDQgAE
-jvM8FRm+CBod/lT09JbkBGSXn1Ipadib00TPtCbDdaUwPlny+GPE8nO/QFiyrW5Z
-MvEJNHQPgigWo+rRnKAelqAAMAoGCCqGSM49BAMCA0gAMEUCIQDiYGbcwIRsdj/L
-Ssrwtf2WEFmQZKVjJxGRtQTqXlj1GgIgMtwmyXS+RuWZt9b+IAGYcjLER4A/GXz/
-TEuNL6GXV2c=
------END CERTIFICATE REQUEST-----)EOF";
+//
+// GLOBAL CONSTANTS 
+//
+
+const u_int8_t DEV_STATUS_UNDEFINED = 0;
+const u_int8_t DEV_STATUS_ERROR = 1;
+const u_int8_t DEV_STATUS_FACTORY = 2;
+const u_int8_t DEV_STATUS_OPERATIONAL = 3;
 
 //
 // GLOBAL VARIABLES
 //
+
+u_int8_t deviceStatus = DEV_STATUS_UNDEFINED;
 
 String brokerSNI = "";
 String devID = "";
@@ -37,7 +38,11 @@ String devSubTopic = "";
 
 String strDeviceCert = "";
 String strDeviceKey = "";
+String strDeviceCSR = "";
 String strCACert = "";
+
+String strCAFileName = "";
+String strCertFileName = "";
 
 String strESTserver = "";
 String strESTusername = "";
@@ -131,78 +136,129 @@ bool loadTLSFiles(String caCert, String deviceCert)
 
     if(!file) {
       Serial.println("Failed to open CA certifcate file for reading");
-      return false;
+    } else {
+      while(file.available()){
+        c = file.read();
+        strCACert += c;
+      }
+      file.close();
+      Serial.println("CA certificate [" + fileName +"]:");
+      Serial.println(strCACert);
+    #ifdef ESP8266
+      x509CACert = new X509List(strCACert.c_str());
+    #endif
     }
-
-    while(file.available()){
-      c = file.read();
-      strCACert += c;
-    }
-    file.close();
-    Serial.println("CA certificate [" + fileName +"]:");
-    Serial.println(strCACert);
     Serial.println();
-
-  #ifdef ESP8266
-    x509CACert = new X509List(strCACert.c_str());
-  #endif
   }
 
   // Load device certificate
   if (deviceCert != "") {
-    // Load CA certificate
+    // Load Device certificate
     fileName = "/" + deviceCert + ".crt";
     file = LittleFS.open(fileName.c_str(), "r");
 
     if(!file) {
       Serial.println("Failed to open device certificate file for reading");
-      return false;
-    }  
-
-    while(file.available()){
-      c = file.read();
-      strDeviceCert += c;
+    } else {
+      while(file.available()){
+        c = file.read();
+        strDeviceCert += c;
+      }
+      file.close();
+      Serial.println("Device certificate [" + fileName +"]:");
+      Serial.println(strDeviceCert);
+    #ifdef ESP8266
+      x509DeviceCert = new X509List(strDeviceCert.c_str());
+    #endif
     }
-    file.close();
-    Serial.println("Device certificate [" + fileName +"]:");
-    Serial.println(strDeviceCert);
     Serial.println();
-
-  #ifdef ESP8266
-    x509DeviceCert = new X509List(strDeviceCert.c_str());
-  #endif
 
     // Load device key  
     fileName = "/" + deviceCert + ".key";
     file = LittleFS.open(fileName.c_str(), "r");
     if(!file) {
       Serial.println("Failed to open device key file for reading");
-      return false;
+    } else {
+      while(file.available()){
+        c = file.read();
+        strDeviceKey += c;
+      }
+      file.close();
+      Serial.println("Device key [" + fileName +"]:");
+      Serial.println(strDeviceKey);
+    #ifdef ESP8266
+      deviceKey = new PrivateKey(strDeviceKey.c_str());
+    #endif
     }
-
-    while(file.available()){
-      c = file.read();
-      strDeviceKey += c;
-    }
-    file.close();
-    Serial.println("Device key [" + fileName +"]:");
-    Serial.println(strDeviceKey);
     Serial.println();
 
-  #ifdef ESP8266
-    deviceKey = new PrivateKey(strDeviceKey.c_str());
-  #endif
+    // Load device CSR  
+    fileName = "/" + deviceCert + ".csr";
+    file = LittleFS.open(fileName.c_str(), "r");
+    if(!file) {
+      Serial.println("Failed to open device CSR file for reading");
+    } else {
+      while(file.available()){
+        c = file.read();
+        strDeviceCSR += c;
+      }
+      file.close();
+      Serial.println("Device key [" + fileName +"]:");
+      Serial.println(strDeviceCSR);
+    }
+    Serial.println();
   }
 
   return true;
 }
+
+
+/***
+ * LOAD TLS FILES
+***/
+bool updateCertFile()
+{
+  String fileName;
+  File file;
+  char c;
+
+  if (strDeviceCert == "")
+    return false;
+
+  if(!LittleFS.begin()) {
+    Serial.println("An Error has occurred while mounting SPIFFS");
+    return false;
+  }
+
+  // Save device certificate
+  fileName = "/" + strCertFileName + ".crt";
+  file = LittleFS.open(fileName.c_str(), "w");
+
+  if(!file) {
+    Serial.println("Failed to open device certificate file for writing");
+  } else {
+    /*
+    while(file.available()){
+      c = file.read();
+      strDeviceCert += c;
+    }
+    */
+    file.write((uint8_t *)strDeviceCert.c_str(), strDeviceCert.length());
+    file.close();
+    Serial.println("Device certificate Saved!");
+  }
+  Serial.println();
+
+  return true;
+}
+
 
 /***
  * LOAD MQTT CONFIG
 ***/
 bool loadMQTTConfig()
 {
-  String buf, strCAFileName, strCertFileName;
+  String buf;
   File file;
 
   // Mount file system.
@@ -287,7 +343,35 @@ bool loadMQTTConfig()
 
   file.close();
 
-  return loadTLSFiles(strCAFileName, strCertFileName);
+  if (!loadTLSFiles(strCAFileName, strCertFileName)) {
+    Serial.println("DEV_STATUS_ERROR - Error reading MQTT config or TLS files");
+    Serial.println();
+    deviceStatus = DEV_STATUS_ERROR;
+    return false;
+  } else {
+    // Check device status
+    if ((strCACert == "") && (strDeviceCert == "") && (strDeviceKey == "") && (strDeviceCSR == "")) {
+      Serial.println("DEV_STATUS_ERROR - TLS Config missing");
+      Serial.println();
+      deviceStatus = DEV_STATUS_ERROR;
+      return false;
+    } else if ((strCACert != "") && (strDeviceCert != "") && (strDeviceKey != "")) {
+      Serial.println("DEV_STATUS_OPERATIONAL - TLS Config OK for operation");
+      Serial.println();
+      deviceStatus = DEV_STATUS_OPERATIONAL;
+      return true;
+    } else if ((strCACert != "") && (strDeviceCert == "") && (strDeviceKey != "") && (strDeviceCSR != "")) {
+      Serial.println("DEV_STATUS_FACTORY - TLS Config in factory mode");
+      Serial.println();
+      deviceStatus = DEV_STATUS_FACTORY;
+      return true;
+    } else {
+      Serial.println("DEV_STATUS_ERROR - The TLS configuration doesn't allow any operation");
+      Serial.println();
+      deviceStatus = DEV_STATUS_ERROR;
+      return false;
+    }
+  }
 }
 
 
@@ -318,14 +402,15 @@ bool estSimpleEnroll(String strCsr, String &strCert)
   Serial.println("POST LENGTH:");
   Serial.println(strCsr.length());  
 
-  httpClient.begin(*WIFIclient,  "wksa-est.certifyiddemo.com", 443, "/.well-known/est/simpleenroll/", true);
+  httpClient.begin(*WIFIclient,  strESTserver.c_str(), 443, "/.well-known/est/simpleenroll/", true);
+  httpClient.setTimeout(10000);
 
 //  httpClient.setAuthorization("90af2231057f4505a92185e134d3fbe4", "d847f238c8e1453cadc1ddf0f6ba491d");
 //  httpClient.addHeader("Content-Type", "application/raw");
 //  httpClient.addHeader("Host", "wksa-est.certifyiddemo.com");
 //  httpClient.addHeader("Content-Length", "284");
 
-  statusCode = httpClient.POST((uint8_t *)CSR, sizeof(CSR) - 1);
+  statusCode = httpClient.POST((uint8_t *)strDeviceCSR.c_str(), strDeviceCSR.length());
 
   if (statusCode > 0) {
     requestResult = (statusCode == HTTP_CODE_OK);
@@ -573,6 +658,12 @@ void setup()
 
   // Default settings
   Serial.begin(115200);
+  Serial.flush();
+
+  Serial.println();
+  Serial.println("<<< SETUP START >>>");
+  Serial.println();
+
 
   // Setup WiFi
   LoadWiFiConfig();
@@ -580,7 +671,42 @@ void setup()
 
   // Setup MQTT
   loadMQTTConfig();
-  setMQTT();
+
+  if (deviceStatus == DEV_STATUS_FACTORY) {
+    Serial.println("FACTORY MODE - TRYING EST PROVISIONING");
+    if (estSimpleEnroll(strDeviceCSR, strDeviceCert)) {
+      Serial.println("EST SIMPLEENROLL OK");
+      if (ConvertP7toPEM(strDeviceCert)) {
+        Serial.println("CERT EXTRACTED FROM PKCS7 OK");
+        if (updateCertFile())
+          deviceStatus = DEV_STATUS_OPERATIONAL;
+        else {
+          Serial.println("ERROR SAVING CERT TO FLASH");
+          deviceStatus = DEV_STATUS_ERROR;
+        }
+      } else {
+        Serial.println("ERROR PROCESSING PKCS7");
+        deviceStatus = DEV_STATUS_ERROR;
+      }
+    } else {
+      Serial.println("EST SIMPLEENROLL ERROR");
+      deviceStatus = DEV_STATUS_ERROR;
+    }
+  }
+
+  if (deviceStatus <= DEV_STATUS_ERROR) {
+    Serial.println("IMPOSSIBLE TO OPERATE - HALTED");
+    while(1) 
+      delay(1000);
+  }
+
+  if (deviceStatus == DEV_STATUS_OPERATIONAL) {
+    Serial.println("OPERATIONAL MODE - STARTING MQTT");
+    setMQTT();
+  }
+  Serial.println();
+  Serial.println("<<< SETUP END >>>");
+  Serial.println();
 }
 
 
